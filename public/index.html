@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Z-Image Studio</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="ambient"></div>
+    <header class="hero">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" role="img" focusable="false">
+            <defs>
+              <linearGradient id="mark" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#ff7a45" />
+                <stop offset="100%" stop-color="#2f80ed" />
+              </linearGradient>
+            </defs>
+            <rect x="6" y="6" width="52" height="52" rx="16" fill="url(#mark)" />
+            <path d="M20 40c6-9 12-12 18-12 6 0 10 2 12 5" fill="none" stroke="#fff6ed" stroke-width="4" stroke-linecap="round" />
+            <circle cx="22" cy="22" r="4" fill="#fff6ed" />
+            <circle cx="40" cy="22" r="4" fill="#fff6ed" />
+          </svg>
+        </div>
+        <div>
+          <p class="kicker">Z-Image Studio</p>
+          <h1>Create with Z-Image Turbo for speed or Z-Image for maximum fidelity.</h1>
+          <p class="sub">A focused workspace for text-to-image prompts with instant model switching and curated defaults.</p>
+        </div>
+      </div>
+      <div class="hero-meta">
+        <div class="meta-card">
+          <h3>Model Guidance</h3>
+          <ul>
+            <li>Wrap any text that must appear in the image in quotes.</li>
+            <li>Width and height must be divisible by 16.</li>
+            <li>Z-Image: 512–2048 px, steps 28–50, guidance 3–5.</li>
+            <li>Turbo runs best around 9 steps with low guidance.</li>
+          </ul>
+        </div>
+        <div class="meta-card">
+          <h3>Model Focus</h3>
+          <p>Switch between Z-Image Turbo for rapid iteration and Z-Image for richer detail.</p>
+          <div class="pill-row">
+            <span class="pill">Z-Image Turbo</span>
+            <span class="pill">Z-Image</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="panel controls" aria-labelledby="controls-title">
+        <div class="panel-header">
+          <div>
+            <h2 id="controls-title">Prompt Console</h2>
+            <p>Draft prompts, tune parameters, and launch a render.</p>
+          </div>
+        </div>
+
+        <form id="generationForm">
+          <div class="field">
+            <label>Model</label>
+            <div class="mode-toggle" role="group" aria-label="Model selection">
+              <span class="mode-indicator" aria-hidden="true"></span>
+              <button type="button" class="mode-btn active" data-model="z-image-turbo" aria-pressed="true">Z-Image Turbo</button>
+              <button type="button" class="mode-btn" data-model="z-image" aria-pressed="false">Z-Image</button>
+            </div>
+            <input type="hidden" id="model" name="model" value="z-image-turbo" />
+            <p class="hint" id="modelHint">Turbo runs best around 9 steps with low guidance.</p>
+          </div>
+          <div class="field">
+            <label for="prompt">Prompt</label>
+            <textarea id="prompt" name="prompt" rows="4" placeholder="Describe the scene, style, and any quoted text details."></textarea>
+            <p class="hint">Tip: wrap any text that must appear in the image in quotes.</p>
+          </div>
+
+          <div class="field">
+            <label for="negativePrompt">Negative Prompt</label>
+            <textarea id="negativePrompt" name="negativePrompt" rows="2" placeholder="What should the model avoid?"></textarea>
+          </div>
+
+          <div class="field">
+            <label>Resolution</label>
+            <div class="inline-grid">
+              <div>
+                <label for="width" class="mini-label">Width</label>
+                <input id="width" name="width" type="number" min="256" step="16" value="1024" />
+              </div>
+              <div>
+                <label for="height" class="mini-label">Height</label>
+                <input id="height" name="height" type="number" min="256" step="16" value="1024" />
+              </div>
+            </div>
+            <div class="quick-row">
+              <button type="button" class="ghost" data-size="512">512</button>
+              <button type="button" class="ghost" data-size="768">768</button>
+              <button type="button" class="ghost" data-size="1024">1024</button>
+              <button type="button" class="ghost" data-size="1536">1536</button>
+              <button type="button" class="ghost" data-size="2048">2048</button>
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Generation Controls</label>
+            <div class="inline-grid">
+              <div>
+                <label for="steps" class="mini-label">Steps</label>
+                <input id="steps" name="steps" type="number" min="1" max="50" value="9" />
+              </div>
+              <div>
+                <label for="guidanceScale" class="mini-label">Guidance Scale</label>
+                <div class="range-row">
+                  <input id="guidanceScale" name="guidanceScale" type="range" min="0" max="6" step="0.1" value="0.0" />
+                  <span id="guidanceValue">0.0</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="seed">Seed</label>
+            <div class="seed-row">
+              <input id="seed" name="seed" type="number" placeholder="Leave empty for random" />
+              <button type="button" class="ghost" id="randomSeed">Randomize</button>
+            </div>
+          </div>
+
+          <div class="status" id="status">
+            <span class="status-dot"></span>
+            <span id="statusText">Idle. Ready to render.</span>
+            <span class="status-elapsed" id="statusElapsed">00:00</span>
+            <div class="status-track" aria-hidden="true">
+              <div class="status-bar"></div>
+            </div>
+          </div>
+
+          <button type="submit" class="primary" id="generateBtn">Generate</button>
+        </form>
+      </section>
+
+      <section class="panel preview" aria-labelledby="preview-title">
+        <div class="panel-header">
+          <div>
+            <h2 id="preview-title">Output Preview</h2>
+            <p>Latest render and metadata snapshot.</p>
+          </div>
+          <div class="pill-row">
+            <span class="pill" id="previewMode">Text to Image</span>
+            <span class="pill" id="previewModel">Z-Image Turbo</span>
+            <span class="pill" id="previewSize">1024 x 1024</span>
+          </div>
+        </div>
+        <div class="preview-frame" id="previewFrame">
+          <img id="outputPreview" alt="Generated preview" />
+        </div>
+        <div class="preview-info">
+          <div class="meta-grid">
+            <div>
+              <p class="meta-label">Steps</p>
+              <p class="meta-value" id="previewSteps">-</p>
+            </div>
+            <div>
+              <p class="meta-label">Guidance</p>
+              <p class="meta-value" id="previewGuidance">-</p>
+            </div>
+            <div>
+              <p class="meta-label">Seed</p>
+              <p class="meta-value" id="previewSeed">-</p>
+            </div>
+            <div>
+              <p class="meta-label">Elapsed</p>
+              <p class="meta-value" id="previewDuration">-</p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <section class="history" aria-labelledby="history-title">
+      <div class="history-header">
+        <div>
+          <h2 id="history-title">Generation History</h2>
+          <p>Every run is stored with time, prompt, and parameters.</p>
+        </div>
+        <div class="pill-row">
+          <span class="pill" id="historyCount">0 items</span>
+        </div>
+      </div>
+      <div class="history-grid" id="historyGrid"></div>
+      <div class="history-empty" id="historyEmpty">No generations yet. Start with a prompt.</div>
+    </section>
+
+    <div class="modal" id="previewModal" aria-hidden="true">
+      <div class="modal-backdrop" data-close></div>
+      <div class="modal-dialog" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div class="modal-header">
+          <div>
+            <p class="kicker">Preview</p>
+            <div class="modal-title-row">
+              <h3 id="modalTitle">Generation Detail</h3>
+              <div class="modal-scale-inline">
+                <span class="modal-scale-label">SCALE:</span>
+                <span class="modal-scale-value" id="modalScale">-</span>
+                <button type="button" class="ghost ghost-mini" id="modalToggleScale">1:1</button>
+              </div>
+            </div>
+          </div>
+          <button type="button" class="modal-close" data-close aria-label="Close preview">Close</button>
+        </div>
+          <div class="modal-body">
+            <div class="modal-image" id="modalImageWrap">
+              <img id="modalImage" alt="Generated preview" />
+            </div>
+            <div class="modal-details">
+              <div class="modal-prompts">
+                <div>
+                  <p class="meta-label">Prompt</p>
+                  <p class="meta-value" id="modalPrompt">-</p>
+                </div>
+                <div>
+                  <p class="meta-label">Negative Prompt</p>
+                  <p class="meta-value" id="modalNegative">-</p>
+                </div>
+                <div class="modal-inputs" id="modalInputsWrap">
+                  <p class="meta-label">Input Images</p>
+                  <div class="modal-input-list" id="modalInputs"></div>
+                </div>
+              </div>
+              <div class="modal-meta">
+                <div class="meta-grid">
+                  <div>
+                    <p class="meta-label">Model</p>
+                    <p class="meta-value" id="modalModel">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Mode</p>
+                    <p class="meta-value" id="modalMode">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Size</p>
+                    <p class="meta-value" id="modalSize">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Steps</p>
+                    <p class="meta-value" id="modalSteps">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Guidance</p>
+                    <p class="meta-value" id="modalGuidance">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Seed</p>
+                    <p class="meta-value" id="modalSeed">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">Duration</p>
+                    <p class="meta-value" id="modalDuration">-</p>
+                  </div>
+                  <div>
+                    <p class="meta-label">File Size</p>
+                    <p class="meta-value" id="modalFileSize">-</p>
+                  </div>
+                  <div id="modalStrengthWrap">
+                    <p class="meta-label">Strength</p>
+                    <p class="meta-value" id="modalStrength">-</p>
+                  </div>
+                </div>
+                <div class="modal-actions">
+                  <button type="button" class="ghost" id="modalDelete">Delete from history</button>
+                </div>
+              </div>
+            </div>
+          </div>
+      </div>
+    </div>
+
+    <footer class="footer">
+      <p>Designed for Z-Image Turbo and Z-Image workflows. Keep prompts concise for rapid iteration.</p>
+    </footer>
+
+    <script src="app.js"></script>
+  </body>
+</html>
