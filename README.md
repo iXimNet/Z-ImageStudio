@@ -1,52 +1,77 @@
 # Z-Image Studio
 
-A lightweight web studio for Z-Image Turbo and Z-Image with a modern-style front end.
+轻量级的 Z-Image / Z-Image Turbo Web 端工作台，提供现代化界面与参数控制。  
+A lightweight web studio for Z-Image and Z-Image Turbo with a modern UI and controls.
 
-## Features
+## 功能 / Features
 
-- Prompt console with negative prompt, guidance scale, steps, and seed controls.
-- Text-to-image generation with Z-Image Turbo or Z-Image (toggle in UI).
-- Model-aware defaults: switching models applies recommended steps/guidance.
-- Optional automatic model unload on switch to reduce VRAM usage.
-- History gallery with preview, metadata, and delete.
+- 提示词控制台（负向提示词、引导尺度、步数、随机种子）。  
+  Prompt console with negative prompt, guidance scale, steps, and seed controls.
+- 文生图：支持 Z-Image Turbo 与 Z-Image，一键切换。  
+  Text-to-image with Z-Image Turbo or Z-Image (toggle in UI).
+- 切换模型时应用推荐参数默认值。  
+  Model-aware defaults apply recommended steps/guidance on switch.
+- 可选：切换模型时自动卸载旧模型以降低显存占用。  
+  Optional auto-unload of previous models to reduce VRAM usage.
+- 生成历史画廊（预览、元数据、删除）。  
+  History gallery with preview, metadata, and delete.
 
-## Quick start
+## 快速开始 / Quick Start
 
-1. Install dependencies:
+1. 安装依赖 / Install dependencies:
 
    ```bash
    pip install -r requirements.txt
    ```
 
-2. Run the app:
+2. 运行应用 / Run the app:
 
    ```bash
    python app.py
    ```
 
-3. Open the UI:
+3. 打开页面 / Open the UI:
 
    ```
    http://localhost:7860
    ```
 
-4. Optional: create a `.env` file from the example:
+4. 可选：从示例生成 `.env` / Optional: create `.env` from example:
 
    ```bash
    copy .env.example .env
    ```
 
-## Notes
+## 说明 / Notes
 
-- Width and height must be divisible by 16.
-- Z-Image Turbo runs best around 9 steps with low guidance values.
-- Z-Image is tuned for 28-50 steps with guidance around 3-5.
-- Outputs are saved to `generated_images/`, uploads to `uploads/`, history to `history.json`.
+- 宽高必须能被 16 整除。  
+  Width and height must be divisible by 16.
+- Z-Image Turbo 建议 9 步左右、低引导尺度。  
+  Z-Image Turbo runs best around 9 steps with low guidance values.
+- Z-Image 建议 28-50 步、引导尺度 3-5。  
+  Z-Image is tuned for 28-50 steps with guidance around 3-5.
+- 输出保存到 `generated_images/`，上传保存到 `uploads/`，历史保存到 `history.json`。  
+  Outputs are saved to `generated_images/`, uploads to `uploads/`, history to `history.json`.
 
-## Configuration
+## 配置 / Configuration
 
+应用会读取 `.env`（不提交到仓库）作为运行时配置：  
 The app reads a `.env` file (not committed) for runtime options:
 
-- `ZIMAGE_DEVICE`: `cuda` or `cpu` (blank = auto).
-- `ZIMAGE_CPU_OFFLOAD`: `1` to enable CPU offload on CUDA, `0` to disable.
-- `ZIMAGE_KEEP_MODELS`: `1` to keep multiple models loaded, `0` to unload others when switching.
+- `ZIMAGE_DEVICE`: `cuda` 或 `cpu`（留空自动检测）。  
+  `cuda` or `cpu` (blank = auto).
+- `ZIMAGE_CPU_OFFLOAD`: CUDA 下启用 CPU Offload（`1` 启用，`0` 关闭）。  
+  Enable CPU offload on CUDA (`1` enable, `0` disable).
+- `ZIMAGE_KEEP_MODELS`: 是否保留多模型（`1` 保留，`0` 切换时卸载）。  
+  Keep multiple models loaded (`1`) or unload others on switch (`0`).
+
+## 模型来源与致谢 / Model Sources & Acknowledgements
+
+本项目使用的 Z-Image 与 Z-Image-Turbo 模型由通义实验室（Tongyi-MAI）在 ModelScope 发布。感谢模型作者与社区的开源贡献与支持。  
+Z-Image and Z-Image-Turbo are published by Tongyi-MAI on ModelScope. We respect and appreciate the authors and the community for their open-source contributions.
+
+模型链接 / Model links:
+```
+https://www.modelscope.cn/models/Tongyi-MAI/Z-Image
+https://www.modelscope.cn/models/Tongyi-MAI/Z-Image-Turbo
+```
