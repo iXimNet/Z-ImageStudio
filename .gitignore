@@ -13,12 +13,14 @@ env/
 # Environment files
 .env
 .env.*
+!.env.example
 
 # App artifacts
 generated_images/
 uploads/
 history.json
 history.jsonl
+example.png
 
 # OS / IDE
 .DS_Store

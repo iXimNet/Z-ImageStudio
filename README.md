@@ -30,6 +30,12 @@ A lightweight web studio for Z-Image Turbo and Z-Image with a modern-style front
    http://localhost:7860
    ```
 
+4. Optional: create a `.env` file from the example:
+
+   ```bash
+   copy .env.example .env
+   ```
+
 ## Notes
 
 - Width and height must be divisible by 16.
