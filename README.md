@@ -3,6 +3,17 @@
 轻量级的 Z-Image / Z-Image Turbo Web 端工作台，提供现代化界面与参数控制。  
 A lightweight web studio for Z-Image and Z-Image Turbo with a modern UI and controls.
 
+## 最近更新 / Recent Updates (2026-01-31)
+
+- 历史卡片布局优化，内容顶对齐并保持同列高度一致。  
+  History cards keep consistent height per row with top-aligned content.
+- 预览占位与历史加载逻辑优化，删除当前预览时清空参数与占位。  
+  Preview placeholder updates based on history; clearing on delete resets metadata.
+- 预览大图支持 1:1、拖拽查看、边缘圆角提示与滚轮缩放；新增全屏预览。  
+  Modal preview adds 1:1 view, drag-to-pan with edge cues, wheel zoom, and fullscreen mode.
+- 运行时可配置推理 dtype（`ZIMAGE_DTYPE`），自动选择更兼容的类型。  
+  Runtime dtype selection (`ZIMAGE_DTYPE`) to improve hardware compatibility.
+
 ## 功能 / Features
 
 - 提示词控制台（负向提示词、引导尺度、步数、随机种子）。  

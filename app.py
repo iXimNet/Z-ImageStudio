@@ -289,6 +289,21 @@ if DEVICE_SETTING in {"cuda", "cpu"}:
         DEVICE = "cpu"
     else:
         DEVICE = DEVICE_SETTING
+DTYPE_SETTING = (os.getenv("ZIMAGE_DTYPE") or "").strip().lower()
+def resolve_torch_dtype() -> torch.dtype:
+    if DTYPE_SETTING in {"fp16", "float16", "half"}:
+        return torch.float16
+    if DTYPE_SETTING in {"bf16", "bfloat16"}:
+        return torch.bfloat16
+    if DTYPE_SETTING in {"fp32", "float32"}:
+        return torch.float32
+    if DEVICE == "cuda":
+        if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
+            return torch.bfloat16
+        return torch.float16
+    return torch.float32
+
+TORCH_DTYPE = resolve_torch_dtype()
 CPU_OFFLOAD = parse_bool(os.getenv("ZIMAGE_CPU_OFFLOAD"), True)
 KEEP_MODELS = parse_bool(os.getenv("ZIMAGE_KEEP_MODELS"), False)
 MODEL_LOCK = threading.Lock()
@@ -325,7 +340,7 @@ def load_pipeline(model_id: str) -> ZImagePipeline:
     print(f"Loading {spec['label']} model...")
     pipe = ZImagePipeline.from_pretrained(
         spec["repo"],
-        torch_dtype=torch.bfloat16,
+        torch_dtype=TORCH_DTYPE,
         low_cpu_mem_usage=False,
     )
     configure_pipeline_device(pipe)

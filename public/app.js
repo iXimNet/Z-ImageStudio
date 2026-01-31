@@ -27,6 +27,9 @@ const heightInput = document.getElementById("height");
 const previewModal = document.getElementById("previewModal");
 const modalImage = document.getElementById("modalImage");
 const modalImageWrap = document.getElementById("modalImageWrap");
+const modalDialog = previewModal ? previewModal.querySelector(".modal-dialog") : null;
+const modalBody = previewModal ? previewModal.querySelector(".modal-body") : null;
+const modalDetailsPanel = previewModal ? previewModal.querySelector(".modal-details") : null;
 const modalPrompt = document.getElementById("modalPrompt");
 const modalNegative = document.getElementById("modalNegative");
 const modalModel = document.getElementById("modalModel");
@@ -44,9 +47,10 @@ const modalInputsWrap = document.getElementById("modalInputsWrap");
 const modalInputs = document.getElementById("modalInputs");
 const modalScale = document.getElementById("modalScale");
 const modalToggleScale = document.getElementById("modalToggleScale");
+const modalToggleFullscreen = document.getElementById("modalToggleFullscreen");
 const modalDelete = document.getElementById("modalDelete");
 
-const placeholderSvg = encodeURIComponent(
+const placeholderEmptySvg = encodeURIComponent(
   `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520">` +
     `<defs>` +
     `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">` +
@@ -55,11 +59,50 @@ const placeholderSvg = encodeURIComponent(
     `</linearGradient>` +
     `</defs>` +
     `<rect width="800" height="520" fill="url(#bg)"/>` +
-    `<text x="60" y="280" font-family="Unbounded, Arial" font-size="34" fill="#0f172a">Awaiting your first Z-Image render</text>` +
+    `<text x="60" y="280" font-family="Unbounded, Arial" font-size="34" fill="#0f172a">Waiting for your first Z-Image render</text>` +
   `</svg>`
 );
 
-outputPreview.src = `data:image/svg+xml;utf8,${placeholderSvg}`;
+const placeholderNextSvg = encodeURIComponent(
+  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 520">` +
+    `<defs>` +
+    `<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">` +
+    `<stop offset="0%" stop-color="#dbeeff"/>` +
+    `<stop offset="100%" stop-color="#ffe4d6"/>` +
+    `</linearGradient>` +
+    `</defs>` +
+    `<rect width="800" height="520" fill="url(#bg)"/>` +
+    `<text x="60" y="280" font-family="Unbounded, Arial" font-size="34" fill="#0f172a">Waiting for your next Z-Image render</text>` +
+  `</svg>`
+);
+
+const previewPlaceholders = {
+  empty: `data:image/svg+xml;utf8,${placeholderEmptySvg}`,
+  next: `data:image/svg+xml;utf8,${placeholderNextSvg}`
+};
+
+function getPreviewPlaceholder(hasHistory) {
+  return hasHistory ? previewPlaceholders.next : previewPlaceholders.empty;
+}
+
+function clearPreviewDetails() {
+  previewSteps.textContent = "-";
+  previewGuidance.textContent = "-";
+  previewSeed.textContent = "-";
+  previewDuration.textContent = "-";
+  previewMode.textContent = "-";
+  if (previewModel) {
+    previewModel.textContent = "-";
+  }
+  previewSize.textContent = "-";
+}
+
+function setPreviewPlaceholder(hasHistory) {
+  if (!outputPreview) return;
+  outputPreview.src = getPreviewPlaceholder(hasHistory);
+  state.previewEntryId = null;
+  clearPreviewDetails();
+}
 
 const MODEL_PRESETS = {
   "z-image-turbo": {
@@ -85,13 +128,23 @@ const MODEL_LABELS = {
 const state = {
   history: [],
   activeEntry: null,
+  previewEntryId: null,
   model: modelInput?.value || "z-image-turbo"
 };
+
+setPreviewPlaceholder(false);
 
 let statusTimer = null;
 let statusStart = null;
 let modalScaleMode = "fit";
 let modalResizeHandler = null;
+let modalDragActive = false;
+let modalDragStartX = 0;
+let modalDragStartY = 0;
+let modalDragScrollLeft = 0;
+let modalDragScrollTop = 0;
+let modalLastFocused = null;
+let modalZoom = 1;
 
 setStatus("idle", "Idle. Ready to render.");
 
@@ -237,6 +290,7 @@ if (form) {
 }
 
 if (previewModal) {
+  previewModal.setAttribute("inert", "");
   previewModal.addEventListener("click", (event) => {
     if (event.target.matches("[data-close]")) {
       closeModal();
@@ -264,10 +318,104 @@ if (modalToggleScale) {
   });
 }
 
+if (modalToggleFullscreen) {
+  modalToggleFullscreen.addEventListener("click", () => {
+    toggleModalFullscreen();
+  });
+}
+
+if (modalImageWrap) {
+  modalImageWrap.addEventListener(
+    "wheel",
+    (event) => {
+      if (!modalImage || !modalImageWrap || !previewModal) return;
+      if (!previewModal.classList.contains("fullscreen")) return;
+      const delta = event.deltaY;
+      if (!Number.isFinite(delta)) return;
+      const zoomFactor = Math.exp(-delta * 0.0015);
+      const nextZoom = Math.max(0.2, Math.min(8, modalZoom * zoomFactor));
+      if (nextZoom === modalZoom) return;
+      const rect = modalImageWrap.getBoundingClientRect();
+      const anchorX = event.clientX - rect.left + modalImageWrap.scrollLeft;
+      const anchorY = event.clientY - rect.top + modalImageWrap.scrollTop;
+      const scaleFactor = nextZoom / modalZoom;
+      modalZoom = nextZoom;
+      applyModalImageSizing();
+      updateModalScale();
+      const nextScrollLeft = anchorX * scaleFactor - (event.clientX - rect.left);
+      const nextScrollTop = anchorY * scaleFactor - (event.clientY - rect.top);
+      modalImageWrap.scrollLeft = nextScrollLeft;
+      modalImageWrap.scrollTop = nextScrollTop;
+      updateModalEdgeState();
+      event.preventDefault();
+    },
+    { passive: false }
+  );
+
+  modalImageWrap.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (!isModalPannable()) return;
+    modalDragActive = true;
+    modalDragStartX = event.clientX;
+    modalDragStartY = event.clientY;
+    modalDragScrollLeft = modalImageWrap.scrollLeft;
+    modalDragScrollTop = modalImageWrap.scrollTop;
+    modalImageWrap.classList.add("is-panning");
+    modalImageWrap.setPointerCapture(event.pointerId);
+    event.preventDefault();
+  });
+
+  modalImageWrap.addEventListener("pointermove", (event) => {
+    if (!modalDragActive) return;
+    const dx = event.clientX - modalDragStartX;
+    const dy = event.clientY - modalDragStartY;
+    modalImageWrap.scrollLeft = modalDragScrollLeft - dx;
+    modalImageWrap.scrollTop = modalDragScrollTop - dy;
+    updateModalEdgeState();
+    event.preventDefault();
+  });
+
+  const endDrag = (event) => {
+    if (!modalDragActive) return;
+    modalDragActive = false;
+    modalImageWrap.classList.remove("is-panning");
+    if (event?.pointerId !== undefined) {
+      modalImageWrap.releasePointerCapture(event.pointerId);
+    }
+  };
+
+  modalImageWrap.addEventListener("pointerup", endDrag);
+  modalImageWrap.addEventListener("pointercancel", endDrag);
+  modalImageWrap.addEventListener("pointerleave", endDrag);
+  modalImageWrap.addEventListener("scroll", () => {
+    updateModalEdgeState();
+  });
+}
+
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeModal();
   }
+});
+
+document.addEventListener("fullscreenchange", () => {
+  if (!previewModal) return;
+  const isFullscreen = document.fullscreenElement === previewModal;
+  previewModal.classList.toggle("fullscreen", isFullscreen);
+  if (modalToggleFullscreen) {
+    modalToggleFullscreen.textContent = isFullscreen ? "Exit" : "Full";
+  }
+  if (!isFullscreen) {
+    modalScaleMode = "fit";
+    modalZoom = 1;
+    if (modalToggleScale) {
+      modalToggleScale.textContent = "1:1";
+    }
+  }
+  applyModalImageSizing();
+  updateModalScale();
+  updateModalDialogSize();
+  updateModalEdgeState();
 });
 
 function collectFormData() {
@@ -322,7 +470,8 @@ async function readApiResponse(response) {
 }
 
 function applyPreview(entry) {
-  outputPreview.src = entry.output?.path || outputPreview.src;
+  outputPreview.src = entry.output?.path || getPreviewPlaceholder(true);
+  state.previewEntryId = entry?.id ?? null;
   previewSteps.textContent = entry.params?.steps ?? "-";
   previewGuidance.textContent = entry.params?.guidanceScale ?? "-";
   previewSeed.textContent = entry.params?.seed ?? "-";
@@ -357,7 +506,7 @@ function renderHistory(entries) {
     thumb.type = "button";
     thumb.className = "thumb";
     const img = document.createElement("img");
-    img.src = entry.output?.path || outputPreview.src;
+    img.src = entry.output?.path || getPreviewPlaceholder(state.history.length > 0);
     img.alt = "Generated image";
     thumb.appendChild(img);
     thumb.addEventListener("click", () => openModal(entry));
@@ -477,21 +626,176 @@ function getFileName(path) {
 
 function resetModalScale() {
   modalScaleMode = "fit";
-  if (modalImage) {
-    modalImage.style.width = "";
-    modalImage.style.height = "";
-  }
+  modalZoom = 1;
+  applyModalImageSizing();
   if (modalToggleScale) {
     modalToggleScale.textContent = "1:1";
   }
   if (modalImage) {
-    const scheduleUpdate = () => requestAnimationFrame(() => updateModalScale());
+    const scheduleUpdate = () =>
+      requestAnimationFrame(() => {
+        applyModalImageSizing();
+        updateModalScale();
+        updateModalDialogSize();
+        updateModalEdgeState();
+      });
     if (modalImage.complete) {
       scheduleUpdate();
     } else {
       modalImage.onload = scheduleUpdate;
     }
   }
+}
+
+function getModalBaseSize() {
+  if (!modalImage || !modalImageWrap) return null;
+  const naturalWidth = modalImage.naturalWidth;
+  const naturalHeight = modalImage.naturalHeight;
+  if (!naturalWidth || !naturalHeight) return null;
+  if (modalScaleMode === "pixel") {
+    const dpr = window.devicePixelRatio || 1;
+    return {
+      width: naturalWidth / dpr,
+      height: naturalHeight / dpr
+    };
+  }
+  const wrapWidth = modalImageWrap.clientWidth;
+  const wrapHeight = modalImageWrap.clientHeight;
+  if (!wrapWidth || !wrapHeight) {
+    return { width: naturalWidth, height: naturalHeight };
+  }
+  const scale = Math.min(wrapWidth / naturalWidth, wrapHeight / naturalHeight);
+  return {
+    width: naturalWidth * scale,
+    height: naturalHeight * scale
+  };
+}
+
+function applyModalImageSizing() {
+  if (!modalImage) return;
+  if (previewModal) {
+    previewModal.classList.toggle("scale-pixel", modalScaleMode === "pixel");
+    if (modalScaleMode !== "pixel") {
+      previewModal.classList.remove("modal-wide");
+    }
+  }
+  const isFullscreen = previewModal?.classList.contains("fullscreen");
+  if (modalScaleMode === "fit" && !isFullscreen && modalZoom === 1) {
+    modalImage.style.width = "";
+    modalImage.style.height = "";
+    modalImage.style.maxWidth = "";
+    modalImage.style.maxHeight = "";
+    if (modalDialog) {
+      modalDialog.style.width = "";
+      modalDialog.style.maxWidth = "";
+      modalDialog.style.maxHeight = "";
+    }
+    return;
+  }
+  const base = getModalBaseSize();
+  if (!base) return;
+  modalImage.style.width = `${base.width * modalZoom}px`;
+  modalImage.style.height = `${base.height * modalZoom}px`;
+  modalImage.style.maxWidth = "none";
+  modalImage.style.maxHeight = "none";
+  if (modalDialog) {
+    modalDialog.style.width = "";
+    modalDialog.style.maxWidth = "";
+    modalDialog.style.maxHeight = "";
+  }
+}
+
+function centerModalImage() {
+  if (!modalImageWrap || !modalImage) return;
+  if (modalScaleMode !== "pixel") return;
+  const maxScrollLeft = modalImageWrap.scrollWidth - modalImageWrap.clientWidth;
+  const maxScrollTop = modalImageWrap.scrollHeight - modalImageWrap.clientHeight;
+  if (maxScrollLeft > 0) {
+    modalImageWrap.scrollLeft = maxScrollLeft / 2;
+  }
+  if (maxScrollTop > 0) {
+    modalImageWrap.scrollTop = maxScrollTop / 2;
+  }
+}
+
+function updateModalDialogSize() {
+  if (!previewModal || !modalDialog || !modalImageWrap || !modalImage || !modalBody) return;
+  if (modalScaleMode !== "pixel") return;
+  if (previewModal.classList.contains("fullscreen")) {
+    modalDialog.style.width = "";
+    modalDialog.style.maxWidth = "";
+    modalDialog.style.maxHeight = "";
+    previewModal.classList.remove("modal-wide");
+    return;
+  }
+  const naturalWidth = modalImage.naturalWidth;
+  const naturalHeight = modalImage.naturalHeight;
+  if (!naturalWidth || !naturalHeight) return;
+  const dpr = window.devicePixelRatio || 1;
+  const displayWidth = naturalWidth / dpr;
+  const displayHeight = naturalHeight / dpr;
+  const dialogRect = modalDialog.getBoundingClientRect();
+  const bodyRect = modalBody.getBoundingClientRect();
+  const detailsRect = modalDetailsPanel ? modalDetailsPanel.getBoundingClientRect() : null;
+  const imageRect = modalImageWrap.getBoundingClientRect();
+  const gap = detailsRect ? bodyRect.width - imageRect.width - detailsRect.width : 0;
+  const chromeWidth = dialogRect.width - bodyRect.width;
+  const chromeHeight = dialogRect.height - bodyRect.height;
+  const targetBodyWidth = displayWidth + (detailsRect ? detailsRect.width : 0) + gap;
+  const targetDialogWidth = targetBodyWidth + chromeWidth;
+  const maxDialogWidth = window.innerWidth * 0.98;
+  const desiredDialogWidth = Math.min(maxDialogWidth, Math.max(dialogRect.width, targetDialogWidth));
+  const needsWidth = displayWidth > imageRect.width + 1 && desiredDialogWidth > dialogRect.width + 1;
+  previewModal.classList.toggle("modal-wide", needsWidth);
+  if (needsWidth) {
+    modalDialog.style.width = `${Math.floor(desiredDialogWidth)}px`;
+    modalDialog.style.maxWidth = "98vw";
+  } else {
+    modalDialog.style.width = "";
+    modalDialog.style.maxWidth = "";
+  }
+
+  const maxDialogHeight = window.innerHeight * 0.96;
+  const targetDialogHeight = displayHeight + chromeHeight;
+  const desiredDialogHeight = Math.min(maxDialogHeight, Math.max(dialogRect.height, targetDialogHeight));
+  const needsHeight = displayHeight > modalImageWrap.clientHeight + 1 && desiredDialogHeight > dialogRect.height + 1;
+  modalDialog.style.maxHeight = needsHeight ? "96vh" : "";
+}
+
+function updateModalEdgeState() {
+  if (!modalImageWrap) return;
+  if (!isModalPannable()) {
+    modalImageWrap.classList.add("edge-left", "edge-right", "edge-top", "edge-bottom");
+    return;
+  }
+  const maxScrollLeft = modalImageWrap.scrollWidth - modalImageWrap.clientWidth;
+  const maxScrollTop = modalImageWrap.scrollHeight - modalImageWrap.clientHeight;
+  const atLeft = modalImageWrap.scrollLeft <= 1;
+  const atRight = modalImageWrap.scrollLeft >= maxScrollLeft - 1;
+  const atTop = modalImageWrap.scrollTop <= 1;
+  const atBottom = modalImageWrap.scrollTop >= maxScrollTop - 1;
+  modalImageWrap.classList.toggle("edge-left", atLeft);
+  modalImageWrap.classList.toggle("edge-right", atRight);
+  modalImageWrap.classList.toggle("edge-top", atTop);
+  modalImageWrap.classList.toggle("edge-bottom", atBottom);
+}
+
+function updateModalDragState() {
+  if (!modalImageWrap) return;
+  const canDrag = isModalPannable();
+  modalImageWrap.classList.toggle("is-pannable", canDrag);
+  if (!canDrag) {
+    modalImageWrap.classList.remove("is-panning");
+  }
+  updateModalEdgeState();
+}
+
+function isModalPannable() {
+  if (!modalImageWrap || !modalImage) return false;
+  return (
+    modalImageWrap.scrollWidth > modalImageWrap.clientWidth + 1 ||
+    modalImageWrap.scrollHeight > modalImageWrap.clientHeight + 1
+  );
 }
 
 function updateModalScale() {
@@ -512,6 +816,8 @@ function updateModalScale() {
   const scaleHeight = (rect.height * dpr) / naturalHeight;
   const scale = Math.min(scaleWidth, scaleHeight);
   modalScale.textContent = `${scale.toFixed(2)}x`;
+  updateModalDragState();
+  updateModalDialogSize();
 }
 
 function toggleModalScale() {
@@ -519,24 +825,79 @@ function toggleModalScale() {
   const naturalWidth = modalImage.naturalWidth;
   const naturalHeight = modalImage.naturalHeight;
   if (!naturalWidth || !naturalHeight) return;
-  const dpr = window.devicePixelRatio || 1;
 
   if (modalScaleMode === "fit") {
     modalScaleMode = "pixel";
-    modalImage.style.width = `${naturalWidth / dpr}px`;
-    modalImage.style.height = `${naturalHeight / dpr}px`;
+    modalZoom = 1;
     if (modalToggleScale) {
       modalToggleScale.textContent = "Fit";
     }
   } else {
     modalScaleMode = "fit";
-    modalImage.style.width = "";
-    modalImage.style.height = "";
+    modalZoom = 1;
     if (modalToggleScale) {
       modalToggleScale.textContent = "1:1";
     }
   }
+  applyModalImageSizing();
   updateModalScale();
+  if (modalScaleMode === "pixel") {
+    if (modalImage && !modalImage.complete) {
+      modalImage.addEventListener(
+        "load",
+        () => {
+          applyModalImageSizing();
+          updateModalScale();
+          updateModalDialogSize();
+          centerModalImage();
+          updateModalEdgeState();
+        },
+        { once: true }
+      );
+    }
+    requestAnimationFrame(() => centerModalImage());
+    requestAnimationFrame(() => updateModalEdgeState());
+  }
+}
+
+function toggleModalFullscreen() {
+  if (!previewModal) return;
+  if (document.fullscreenElement === previewModal) {
+    if (document.exitFullscreen) {
+      document.exitFullscreen();
+    } else {
+      previewModal.classList.remove("fullscreen");
+      if (modalToggleFullscreen) {
+        modalToggleFullscreen.textContent = "Full";
+      }
+      applyModalImageSizing();
+      updateModalScale();
+      updateModalDialogSize();
+      updateModalEdgeState();
+    }
+    return;
+  }
+  if (previewModal.requestFullscreen) {
+    previewModal.requestFullscreen().catch(() => {
+      previewModal.classList.add("fullscreen");
+      if (modalToggleFullscreen) {
+        modalToggleFullscreen.textContent = "Exit";
+      }
+      applyModalImageSizing();
+      updateModalScale();
+      updateModalDialogSize();
+      updateModalEdgeState();
+    });
+  } else {
+    previewModal.classList.add("fullscreen");
+    if (modalToggleFullscreen) {
+      modalToggleFullscreen.textContent = "Exit";
+    }
+    applyModalImageSizing();
+    updateModalScale();
+    updateModalDialogSize();
+    updateModalEdgeState();
+  }
 }
 
 function startStatusTimer() {
@@ -574,8 +935,12 @@ function formatElapsed(value) {
 
 function openModal(entry) {
   if (!previewModal) return;
+  modalLastFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   state.activeEntry = entry;
-  modalImage.src = entry.output?.path || outputPreview.src;
+  if (modalToggleFullscreen) {
+    modalToggleFullscreen.textContent = document.fullscreenElement === previewModal ? "Exit" : "Full";
+  }
+  modalImage.src = entry.output?.path || getPreviewPlaceholder(state.history.length > 0);
   modalPrompt.textContent = entry.prompt || "Untitled prompt";
   modalNegative.textContent = entry.negativePrompt || "-";
   if (modalModel) {
@@ -604,20 +969,50 @@ function openModal(entry) {
 
   previewModal.classList.add("open");
   previewModal.setAttribute("aria-hidden", "false");
+  previewModal.removeAttribute("inert");
+  const closeButton = previewModal.querySelector("[data-close]");
+  if (closeButton instanceof HTMLElement) {
+    closeButton.focus();
+  }
   requestAnimationFrame(() => updateModalScale());
 
   if (!modalResizeHandler) {
-    modalResizeHandler = () => updateModalScale();
+    modalResizeHandler = () => {
+      applyModalImageSizing();
+      updateModalScale();
+      updateModalDialogSize();
+      updateModalEdgeState();
+    };
     window.addEventListener("resize", modalResizeHandler);
   }
 }
 
 function closeModal() {
   if (!previewModal) return;
+  if (document.fullscreenElement === previewModal && document.exitFullscreen) {
+    document.exitFullscreen();
+  }
+  previewModal.classList.remove("fullscreen");
+  if (modalToggleFullscreen) {
+    modalToggleFullscreen.textContent = "Full";
+  }
+  const activeEl = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if (activeEl && previewModal.contains(activeEl)) {
+    activeEl.blur();
+  }
   previewModal.classList.remove("open");
   previewModal.setAttribute("aria-hidden", "true");
+  previewModal.setAttribute("inert", "");
+  if (modalLastFocused) {
+    modalLastFocused.focus();
+  }
+  modalLastFocused = null;
   state.activeEntry = null;
   resetModalScale();
+  modalDragActive = false;
+  if (modalImageWrap) {
+    modalImageWrap.classList.remove("is-panning");
+  }
   if (modalResizeHandler) {
     window.removeEventListener("resize", modalResizeHandler);
     modalResizeHandler = null;
@@ -632,9 +1027,12 @@ async function deleteHistoryEntry(id) {
   if (!response.ok) {
     throw new Error(data?.error || "Delete failed.");
   }
+  const wasPreview = state.previewEntryId === id;
   state.history = state.history.filter((entry) => entry.id !== id);
   renderHistory(state.history);
-  setStatus("idle", "History entry deleted.");
+  if (wasPreview || state.previewEntryId === null) {
+    setPreviewPlaceholder(state.history.length > 0);
+  }
 }
 
 async function loadHistory() {
@@ -643,6 +1041,7 @@ async function loadHistory() {
     const data = await response.json();
     state.history = Array.isArray(data) ? data : [];
     renderHistory(state.history);
+    setPreviewPlaceholder(state.history.length > 0);
   } catch (error) {
     setStatus("error", "Unable to load history.");
   }
