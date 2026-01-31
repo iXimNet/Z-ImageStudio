@@ -69,8 +69,10 @@ A lightweight web studio for Z-Image and Z-Image Turbo with a modern UI and cont
 应用会读取 `.env`（不提交到仓库）作为运行时配置：  
 The app reads a `.env` file (not committed) for runtime options:
 
-- `ZIMAGE_DEVICE`: `cuda` 或 `cpu`（留空自动检测）。  
-  `cuda` or `cpu` (blank = auto).
+- `ZIMAGE_DEVICE`: `cuda` / `mps` / `cpu`（留空自动检测）。  
+  `cuda` / `mps` / `cpu` (blank = auto).
+- `ZIMAGE_DTYPE`: `bf16` / `fp16` / `fp32`（留空自动选择）。  
+  `bf16` / `fp16` / `fp32` (blank = auto).
 - `ZIMAGE_CPU_OFFLOAD`: CUDA 下启用 CPU Offload（`1` 启用，`0` 关闭）。  
   Enable CPU offload on CUDA (`1` enable, `0` disable).
 - `ZIMAGE_KEEP_MODELS`: 是否保留多模型（`1` 保留，`0` 切换时卸载）。  

@@ -283,9 +283,21 @@ bootstrap_history()
 load_env_file(ENV_PATH)
 
 DEVICE_SETTING = (os.getenv("ZIMAGE_DEVICE") or "").strip().lower()
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-if DEVICE_SETTING in {"cuda", "cpu"}:
+
+def is_mps_available() -> bool:
+    return bool(getattr(torch.backends, "mps", None) and torch.backends.mps.is_available())
+
+if torch.cuda.is_available():
+    DEVICE = "cuda"
+elif is_mps_available():
+    DEVICE = "mps"
+else:
+    DEVICE = "cpu"
+
+if DEVICE_SETTING in {"cuda", "cpu", "mps"}:
     if DEVICE_SETTING == "cuda" and not torch.cuda.is_available():
+        DEVICE = "cpu"
+    elif DEVICE_SETTING == "mps" and not is_mps_available():
         DEVICE = "cpu"
     else:
         DEVICE = DEVICE_SETTING
@@ -294,12 +306,14 @@ def resolve_torch_dtype() -> torch.dtype:
     if DTYPE_SETTING in {"fp16", "float16", "half"}:
         return torch.float16
     if DTYPE_SETTING in {"bf16", "bfloat16"}:
-        return torch.bfloat16
+        return torch.float16 if DEVICE == "mps" else torch.bfloat16
     if DTYPE_SETTING in {"fp32", "float32"}:
         return torch.float32
     if DEVICE == "cuda":
         if hasattr(torch.cuda, "is_bf16_supported") and torch.cuda.is_bf16_supported():
             return torch.bfloat16
+        return torch.float16
+    if DEVICE == "mps":
         return torch.float16
     return torch.float32
 
@@ -326,7 +340,10 @@ def configure_pipeline_device(pipe: ZImagePipeline) -> None:
     if DEVICE == "cpu":
         pipe.to("cpu")
         return
-    if CPU_OFFLOAD:
+    if DEVICE == "mps":
+        pipe.to("mps")
+        return
+    if CPU_OFFLOAD and DEVICE == "cuda":
         try:
             pipe.enable_model_cpu_offload()
             return
@@ -443,7 +460,11 @@ def api_generate_text(payload: TextRequest):
         raise HTTPException(status_code=400, detail=error)
 
     seed = normalize_seed(payload.seed)
-    generator = torch.Generator(DEVICE).manual_seed(seed) if DEVICE == "cuda" else torch.Generator().manual_seed(seed)
+    generator = (
+        torch.Generator(DEVICE).manual_seed(seed)
+        if DEVICE in {"cuda", "mps"}
+        else torch.Generator().manual_seed(seed)
+    )
 
     pipe = get_pipeline(model_id)
     pipe_args = {
