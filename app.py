@@ -7,6 +7,7 @@ import threading
 import time
 import uuid
 import gc
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -180,6 +181,14 @@ def parse_bool(value: Optional[str], default: bool = False) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def has_invalid_value_warning(captured: List[warnings.WarningMessage]) -> bool:
+    for warning in captured:
+        message = str(warning.message).lower()
+        if "invalid value encountered" in message or "nan" in message:
+            return True
+    return False
+
+
 def load_env_file(path: Path) -> None:
     if not path.exists():
         return
@@ -303,10 +312,19 @@ if DEVICE_SETTING in {"cuda", "cpu", "mps"}:
         DEVICE = DEVICE_SETTING
 DTYPE_SETTING = (os.getenv("ZIMAGE_DTYPE") or "").strip().lower()
 def resolve_torch_dtype() -> torch.dtype:
+    if DEVICE == "cpu":
+        if DTYPE_SETTING in {"fp16", "float16", "half"}:
+            print("ZIMAGE_DTYPE=float16 requested on CPU; falling back to float32.")
+            return torch.float32
+        if DTYPE_SETTING in {"bf16", "bfloat16"}:
+            return torch.bfloat16
+        if DTYPE_SETTING in {"fp32", "float32"}:
+            return torch.float32
+        return torch.float32
     if DTYPE_SETTING in {"fp16", "float16", "half"}:
         return torch.float16
     if DTYPE_SETTING in {"bf16", "bfloat16"}:
-        return torch.float16 if DEVICE == "mps" else torch.bfloat16
+        return torch.bfloat16
     if DTYPE_SETTING in {"fp32", "float32"}:
         return torch.float32
     if DEVICE == "cuda":
@@ -318,6 +336,17 @@ def resolve_torch_dtype() -> torch.dtype:
     return torch.float32
 
 TORCH_DTYPE = resolve_torch_dtype()
+print(f"Using device={DEVICE}, torch_dtype={TORCH_DTYPE}")
+MPS_FALLBACK = parse_bool(os.getenv("PYTORCH_ENABLE_MPS_FALLBACK"), False)
+MPS_UNET_FP32 = parse_bool(
+    os.getenv("ZIMAGE_MPS_UNET_FP32"),
+    DEVICE == "mps" and TORCH_DTYPE == torch.float16,
+)
+MPS_NAN_FALLBACK = parse_bool(os.getenv("ZIMAGE_MPS_NAN_FALLBACK"), True)
+if DEVICE == "mps" and MPS_FALLBACK:
+    print(
+        "Warning: PYTORCH_ENABLE_MPS_FALLBACK=1 can trigger CPU fallback and slowdowns."
+    )
 CPU_OFFLOAD = parse_bool(os.getenv("ZIMAGE_CPU_OFFLOAD"), True)
 KEEP_MODELS = parse_bool(os.getenv("ZIMAGE_KEEP_MODELS"), False)
 MODEL_LOCK = threading.Lock()
@@ -352,15 +381,67 @@ def configure_pipeline_device(pipe: ZImagePipeline) -> None:
     pipe.to(DEVICE)
 
 
+def upcast_mps_vae(pipe: ZImagePipeline, note: str) -> None:
+    if getattr(pipe, "_mps_vae_fp32", False):
+        return
+    if not hasattr(pipe, "vae") or pipe.vae is None:
+        return
+    try:
+        pipe.vae.to(device="mps", dtype=torch.float32)
+        setattr(pipe, "_mps_vae_fp32", True)
+        print(note)
+    except Exception:
+        pass
+
+
+def upcast_mps_unet(pipe: ZImagePipeline, note: str) -> bool:
+    if getattr(pipe, "_mps_unet_fp32", False):
+        return False
+    updated = False
+    try:
+        if hasattr(pipe, "unet") and pipe.unet is not None:
+            pipe.unet.to(device="mps", dtype=torch.float32)
+            updated = True
+        if hasattr(pipe, "transformer") and pipe.transformer is not None:
+            pipe.transformer.to(device="mps", dtype=torch.float32)
+            updated = True
+        if updated:
+            setattr(pipe, "_mps_unet_fp32", True)
+            print(note)
+    except Exception:
+        pass
+    return updated
+
+
+def run_pipe_with_warnings(pipe: ZImagePipeline, pipe_args: Dict[str, Any]):
+    with warnings.catch_warnings(record=True) as captured:
+        warnings.simplefilter("always")
+        result = pipe(**pipe_args)
+    return result, captured
+
+
 def load_pipeline(model_id: str) -> ZImagePipeline:
     spec = MODEL_SPECS[model_id]
     print(f"Loading {spec['label']} model...")
-    pipe = ZImagePipeline.from_pretrained(
-        spec["repo"],
-        torch_dtype=TORCH_DTYPE,
-        low_cpu_mem_usage=False,
-    )
+    load_kwargs = {"low_cpu_mem_usage": False}
+    if DEVICE != "cpu" or TORCH_DTYPE != torch.float32:
+        load_kwargs["torch_dtype"] = TORCH_DTYPE
+    pipe = ZImagePipeline.from_pretrained(spec["repo"], **load_kwargs)
     configure_pipeline_device(pipe)
+    if DEVICE == "mps" and TORCH_DTYPE == torch.float16:
+        try:
+            if hasattr(pipe, "upcast_vae"):
+                pipe.upcast_vae()
+                setattr(pipe, "_mps_vae_fp32", True)
+                print("Upcasted VAE to float32 on MPS to avoid black images.")
+            else:
+                upcast_mps_vae(pipe, "Upcasted VAE to float32 on MPS to avoid black images.")
+        except Exception:
+            pass
+        if MPS_UNET_FP32:
+            upcast_mps_unet(
+                pipe, "Upcasted UNet/transformer to float32 on MPS to reduce NaNs/black images."
+            )
     PIPELINES[model_id] = pipe
     PIPELINE_VAE_SCALES[model_id] = int(getattr(pipe, "vae_scale_factor", 8) * 2)
     print(f"{spec['label']} model loaded successfully!")
@@ -378,7 +459,8 @@ def unload_other_pipelines(target_model_id: str) -> None:
             if pipe is None:
                 continue
             try:
-                pipe.to("cpu")
+                if DEVICE != "mps" or TORCH_DTYPE != torch.float16:
+                    pipe.to("cpu")
             except Exception:
                 pass
             try:
@@ -388,6 +470,11 @@ def unload_other_pipelines(target_model_id: str) -> None:
         if DEVICE == "cuda":
             try:
                 torch.cuda.empty_cache()
+            except Exception:
+                pass
+        elif DEVICE == "mps" and hasattr(torch, "mps"):
+            try:
+                torch.mps.empty_cache()
             except Exception:
                 pass
     gc.collect()
@@ -480,8 +567,25 @@ def api_generate_text(payload: TextRequest):
         pipe_args["cfg_normalization"] = model_spec["cfg_normalization"]
 
     with MODEL_LOCK:
-        with torch.no_grad():
-            image = pipe(**pipe_args).images[0]
+        with torch.inference_mode():
+            result, captured = run_pipe_with_warnings(pipe, pipe_args)
+            if (
+                DEVICE == "mps"
+                and MPS_NAN_FALLBACK
+                and TORCH_DTYPE in {torch.float16, torch.bfloat16}
+                and has_invalid_value_warning(captured)
+            ):
+                print("MPS NaN warning detected; falling back to fp32 and retrying once.")
+                upcast_mps_vae(
+                    pipe,
+                    "Upcasted VAE to float32 on MPS after NaNs/black image warning.",
+                )
+                if upcast_mps_unet(
+                    pipe,
+                    "Detected NaNs on MPS; upcasted UNet/transformer to float32 and retrying.",
+                ):
+                    result, _ = run_pipe_with_warnings(pipe, pipe_args)
+            image = result.images[0]
 
     entry_id = uuid.uuid4().hex
     output_name = f"output-{entry_id}.png"

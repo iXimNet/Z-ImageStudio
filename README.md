@@ -73,10 +73,21 @@ The app reads a `.env` file (not committed) for runtime options:
   `cuda` / `mps` / `cpu` (blank = auto).
 - `ZIMAGE_DTYPE`: `bf16` / `fp16` / `fp32`（留空自动选择）。  
   `bf16` / `fp16` / `fp32` (blank = auto).
+- `ZIMAGE_MPS_UNET_FP32`: MPS 下将 UNet/transformer 上采样到 fp32（`1` 启用，`0` 关闭）。  
+  Upcast UNet/transformer to fp32 on MPS (`1` enable, `0` disable).
+- `ZIMAGE_MPS_NAN_FALLBACK`: MPS 下出现 NaN/黑图告警时自动回退到 fp32 并重试（`1` 启用，`0` 关闭）。  
+  Retry with fp32 UNet/transformer on MPS when NaN/black-image warnings appear (`1` enable, `0` disable).
 - `ZIMAGE_CPU_OFFLOAD`: CUDA 下启用 CPU Offload（`1` 启用，`0` 关闭）。  
   Enable CPU offload on CUDA (`1` enable, `0` disable).
 - `ZIMAGE_KEEP_MODELS`: 是否保留多模型（`1` 保留，`0` 切换时卸载）。  
   Keep multiple models loaded (`1`) or unload others on switch (`0`).
+
+MPS 稳定性与性能提示：  
+MPS stability & performance tips:
+- 若出现黑图/NaN 告警，保持 `ZIMAGE_MPS_NAN_FALLBACK=1`，必要时开启 `ZIMAGE_MPS_UNET_FP32=1`。  
+  If you see black images/NaN warnings, keep `ZIMAGE_MPS_NAN_FALLBACK=1` and optionally set `ZIMAGE_MPS_UNET_FP32=1`.
+- `ZIMAGE_DTYPE=bf16` 仅在 MPS 支持 bf16 时可用；若报错请回退到 `fp16`/`fp32`。  
+  `ZIMAGE_DTYPE=bf16` requires MPS bf16 support; fall back to `fp16`/`fp32` if it errors.
 
 ## 模型来源与致谢 / Model Sources & Acknowledgements
 
